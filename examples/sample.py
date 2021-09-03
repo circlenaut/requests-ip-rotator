@@ -9,7 +9,7 @@ from requests_ip_rotator import ApiGateway as _ApiGateway
 CREDENTIALS_FILE = './credentials.json'
 TEST_SITE = 'http://www.google.com'
 EXTRA_REGIONS = ["us-east-1", "us-east-2"]
-LOG_LEVEL = "info"
+LOG_LEVEL = "debug"
 
 def main() -> None:
     
@@ -27,6 +27,7 @@ def main() -> None:
         regions=EXTRA_REGIONS,
         access_key_id = credentials.get('access_key_id'),
         access_key_secret = credentials.get('access_key_secret'),
+        log_level = LOG_LEVEL.upper()
     )
     gateway.start()
 
