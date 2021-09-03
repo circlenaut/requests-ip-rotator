@@ -1,9 +1,11 @@
-import boto3
-import botocore.exceptions
 import requests as rq
+import logging
 import concurrent.futures
 from random import choice
 from time import sleep
+
+import boto3
+import botocore.exceptions
 
 # Region lists that can be imported and used in the ApiGateway class
 DEFAULT_REGIONS = [
@@ -23,12 +25,21 @@ ALL_REGIONS = EXTRA_REGIONS + [
     "ap-east-1", "af-south-1", "eu-south-1", "me-south-1"
 ]
 
+# Enable Logging
+logging.basicConfig(
+    format = '[%(levelname)s] %(message)s',
+    datefmt = '%Y-%m-%d %H:%M:%S %z',
+)
 
 # Inherits from HTTPAdapter so that we can edit each request before sending
 class ApiGateway(rq.adapters.HTTPAdapter):
 
-    def __init__(self, site, regions=DEFAULT_REGIONS, access_key_id=None, access_key_secret=None):
+    def __init__(self, site, regions=DEFAULT_REGIONS, access_key_id=None, access_key_secret=None, log_level="info"):
         super().__init__()
+        # Setup self.logger
+        self.logger = logging.getLogger(__name__)
+        self.logger.setLevel(log_level.upper())
+
         # Set simple params from constructor
         if site.endswith("/"):
             self.site = site[:-1]
@@ -66,7 +77,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
                 current_apis = awsclient.get_rest_apis()["items"]
             except botocore.exceptions.ClientError as e:
                 if e.response["Error"]["Code"] == "UnrecognizedClientException":
-                    print(f"Could not create region (some regions require manual enabling): {region}")
+                    self.logger.error(f"Could not create region (some regions require manual enabling): {region}")
                     return {
                         "success": False
                     }
@@ -209,7 +220,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
                     if success:
                         deleted += 1
                     else:
-                        print(f"Failed to delete API {api['id']}.")
+                        self.logger.error(f"Failed to delete API {api['id']}.")
                 except botocore.exceptions.ClientError as e:
                     # If timeout, retry
                     err_code = e.response["Error"]["Code"]
@@ -217,7 +228,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
                         sleep(1)
                         continue
                     else:
-                        print(f"Failed to delete API {api['id']}.")
+                        self.logger.error(f"Failed to delete API {api['id']}.")
             api_iter += 1
         return deleted
 
@@ -228,7 +239,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
             return endpoints
 
         # Otherwise, start/locate new endpoints
-        print(f"Starting API gateway{'s' if len(self.regions) > 1 else ''} in {len(self.regions)} regions.")
+        self.logger.debug(f"Starting API gateway{'s' if len(self.regions) > 1 else ''} in {len(self.regions)} regions.")
         self.endpoints = []
         new_endpoints = 0
 
@@ -246,11 +257,11 @@ class ApiGateway(rq.adapters.HTTPAdapter):
                     if result["new"]:
                         new_endpoints += 1
 
-        print(f"Using {len(self.endpoints)} endpoints with name '{self.api_name}' ({new_endpoints} new).")
+        self.logger.info(f"Using {len(self.endpoints)} endpoints with name '{self.api_name}' ({new_endpoints} new).")
         return self.endpoints
 
     def shutdown(self):
-        print(f"Deleting gateway{'s' if len(self.regions) > 1 else ''} for site '{self.site}'.")
+        self.logger.debug(f"Deleting gateway{'s' if len(self.regions) > 1 else ''} for site '{self.site}'.")
         futures = []
 
         # Setup multithreading object
@@ -262,4 +273,4 @@ class ApiGateway(rq.adapters.HTTPAdapter):
             deleted = 0
             for future in concurrent.futures.as_completed(futures):
                 deleted += future.result()
-        print(f"Deleted {deleted} endpoints with for site '{self.site}'.")
+        self.logger.debug(f"Deleted {deleted} endpoints with for site '{self.site}'.")

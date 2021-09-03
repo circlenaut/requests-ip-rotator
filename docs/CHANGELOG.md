@@ -23,6 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     - `test.sh` : Reinstalls package and runs `test.py`
 - examples: created a sample file to quickly assess this project under the `examples` directory
   - `sample.py` : An example file showcasing how to use this package
+  - `credentials-sample.json`: A sample json file to store your aws IAM credentials
+- logging: replaced all print statements with a logger
 
 ### Removed
 - `setup.py`
