@@ -50,7 +50,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
         self.api_name = site + " - IP Rotate API"
         self.regions = regions
 
-    def send(self, request, stream=False, timeout=None, verify=True, cert=None, proxies=None):
+    def _send(self, request, stream=False, timeout=None, verify=True, cert=None, proxies=None):
         # Get random endpoint
         endpoint = choice(self.endpoints)
         # Replace URL with our endpoint
@@ -60,9 +60,9 @@ class ApiGateway(rq.adapters.HTTPAdapter):
         # Replace host with endpoint host
         request.headers["Host"] = endpoint
         # Run original python requests send function
-        return super().send(request, stream, timeout, verify, cert, proxies)
+        return super()._send(request, stream, timeout, verify, cert, proxies)
 
-    def init_gateway(self, region, force=False):
+    def _init_gateway(self, region, force=False):
         # Init client
         session = boto3.session.Session()
         awsclient = session.client(
@@ -193,7 +193,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
             "new": True
         }
 
-    def delete_gateway(self, region):
+    def _delete_gateway(self, region):
         # Create client
         session = boto3.session.Session()
         awsclient = session.client('apigateway',
@@ -248,7 +248,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
             futures = []
             # Send each region creation to its own thread
             for region in self.regions:
-                futures.append(executor.submit(self.init_gateway, region=region, force=force))
+                futures.append(executor.submit(self._init_gateway, region=region, force=force))
             # Get thread outputs
             for future in concurrent.futures.as_completed(futures):
                 result = future.result()
@@ -268,7 +268,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             # Send each region deletion to its own thread
             for region in self.regions:
-                futures.append(executor.submit(self.delete_gateway, region=region))
+                futures.append(executor.submit(self._delete_gateway, region=region))
             # Check outputs
             deleted = 0
             for future in concurrent.futures.as_completed(futures):

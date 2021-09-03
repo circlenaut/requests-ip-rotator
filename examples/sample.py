@@ -48,9 +48,9 @@ if __name__ == '__main__':
     _logging.basicConfig(
         format = '[%(levelname)s] %(message)s',
         datefmt = '%Y-%m-%d %H:%M:%S %z',
-        level = LOG_LEVEL.upper(),
     )
     _log = _logging.getLogger(__name__)
+    _log.setLevel(LOG_LEVEL.upper())
 
     ### Run main
     main()

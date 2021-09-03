@@ -10,6 +10,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Restructured project
   - created `src` directory: moved project code here
+- Added single leading underscores to the private methods of `ApiGateway` :
+  - `init_gateway`, `send`, `delete_gateway`
 
 ### Added
 - CI/CD: Transitioned away from `setup.py`
