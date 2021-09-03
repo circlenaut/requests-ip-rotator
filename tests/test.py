@@ -1,0 +1,4 @@
+import requests
+import requests_ip_rotator
+
+print(requests_ip_rotator.__version__)

@@ -1,0 +1,4 @@
+#version = '1.0.9'
+from setuptools_scm import get_version
+
+version = get_version(root='..', relative_to=__file__)
