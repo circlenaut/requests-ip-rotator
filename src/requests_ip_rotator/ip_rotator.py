@@ -33,7 +33,7 @@ logging.basicConfig(
 
 class AWS:
 
-    def __init__(self, region, access_id, access_secret):
+    def __init__(self, region: str, access_id: str, access_secret: str):
         self.region = region
 
         session = boto3.session.Session()
@@ -48,7 +48,13 @@ class AWS:
 # Inherits from HTTPAdapter so that we can edit each request before sending
 class ApiGateway(rq.adapters.HTTPAdapter):
 
-    def __init__(self, site, regions=DEFAULT_REGIONS, access_key_id=None, access_key_secret=None, log_level="info"):
+    def __init__(
+        self, site,
+        regions: str = DEFAULT_REGIONS,
+        access_key_id: str = None,
+        access_key_secret: str = None,
+        log_level: str = "info",
+    ):
         super().__init__()
         # Setup self.logger
         self.logger = logging.getLogger(__name__)
@@ -64,19 +70,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
         self.api_name = site + " - IP Rotate API"
         self.regions = regions
 
-    def _send(self, request, stream=False, timeout=None, verify=True, cert=None, proxies=None):
-        # Get random endpoint
-        endpoint = choice(self.endpoints)
-        # Replace URL with our endpoint
-        protocol, site = request.url.split("://", 1)
-        site_path = site.split("/", 1)[1]
-        request.url = "https://" + endpoint + "/ProxyStage/" + site_path
-        # Replace host with endpoint host
-        request.headers["Host"] = endpoint
-        # Run original python requests send function
-        return super()._send(request, stream, timeout, verify, cert, proxies)
-
-    def _active_endpoints(self, aws: AWS):
+    def _active_endpoints(self, aws: AWS) -> dict:
         """ Returns existing endpoint"""
 
         try:
@@ -100,7 +94,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
                     "new": False
                 }        
 
-    def _init_gateway(self, region, force=False):
+    def _init_gateway(self, region: str, force: bool = False) -> dict:
         # Connect to AWS
         aws = AWS(region, self.access_key_id, self.access_key_secret)
 
@@ -210,7 +204,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
             "new": True
         }
 
-    def _delete_gateway(self, region):
+    def _delete_gateway(self, region: str) -> int:
         # Connect to AWS
         aws = AWS(region, self.access_key_id, self.access_key_secret)
 
@@ -245,12 +239,28 @@ class ApiGateway(rq.adapters.HTTPAdapter):
             api_iter += 1
         return deleted
 
-    def _check_endpoints(self, region):
+    def _check_endpoints(self, region: str) -> dict:
         # Connect to AWS
         aws = AWS(region, self.access_key_id, self.access_key_secret)
         return self._active_endpoints(aws)
 
-    def start(self, force=False, endpoints=[]):
+    def send(self, request: rq.models.Response, stream: bool = False, timeout: int = None,
+        verify: bool = True,
+        cert: tuple = None,
+        proxies: dict = None,
+        ) -> rq.models.Response:
+        # Get random endpoint
+        endpoint = choice(self.endpoints)
+        # Replace URL with our endpoint
+        protocol, site = request.url.split("://", 1)
+        site_path = site.split("/", 1)[1]
+        request.url = "https://" + endpoint + "/ProxyStage/" + site_path
+        # Replace host with endpoint host
+        request.headers["Host"] = endpoint
+        # Run original python requests send function
+        return super().send(request, stream, timeout, verify, cert, proxies)
+
+    def start(self, force=False, endpoints=[]) -> list:
         # If endpoints given already, assign and continue
         if len(endpoints) > 0:
             self.endpoints = endpoints
@@ -293,7 +303,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
                 deleted += future.result()
         self.logger.debug(f"Deleted {deleted} endpoints with for site '{self.site}'.")
 
-    def status(self, force=False):
+    def status(self, force=False) -> dict:
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             futures = []
             endpoints = []
