@@ -31,6 +31,20 @@ logging.basicConfig(
     datefmt = '%Y-%m-%d %H:%M:%S %z',
 )
 
+class AWS:
+
+    def __init__(self, region, access_id, access_secret):
+        self.region = region
+
+        session = boto3.session.Session()
+        self.client = session.client(
+            "apigateway",
+            region_name=region,
+            aws_access_key_id=access_id,
+            aws_secret_access_key=access_secret
+        )
+
+
 # Inherits from HTTPAdapter so that we can edit each request before sending
 class ApiGateway(rq.adapters.HTTPAdapter):
 
@@ -62,38 +76,41 @@ class ApiGateway(rq.adapters.HTTPAdapter):
         # Run original python requests send function
         return super()._send(request, stream, timeout, verify, cert, proxies)
 
-    def _init_gateway(self, region, force=False):
-        # Init client
-        session = boto3.session.Session()
-        awsclient = session.client(
-            "apigateway",
-            region_name=region,
-            aws_access_key_id=self.access_key_id,
-            aws_secret_access_key=self.access_key_secret
-        )
-        # If API gateway already exists for host, return pre-existing endpoint
-        if not force:
-            try:
-                current_apis = awsclient.get_rest_apis()["items"]
-            except botocore.exceptions.ClientError as e:
-                if e.response["Error"]["Code"] == "UnrecognizedClientException":
-                    self.logger.error(f"Could not create region (some regions require manual enabling): {region}")
-                    return {
-                        "success": False
-                    }
-                else:
-                    raise e
+    def _active_endpoints(self, aws: AWS):
+        """ Returns existing endpoint"""
 
-            for api in current_apis:
-                if self.api_name == api["name"]:
-                    return {
-                        "success": True,
-                        "endpoint": f"{api['id']}.execute-api.{region}.amazonaws.com",
-                        "new": False
-                    }
+        try:
+            current_apis = aws.client.get_rest_apis()["items"]
+        except botocore.exceptions.ClientError as e:
+            if e.response["Error"]["Code"] == "UnrecognizedClientException":
+                self.logger.error(f"Could not create region (some regions require manual enabling): {region}")
+                return {
+                    "success": False
+                }
+            else:
+                raise e
+
+        if len(current_apis) == 0:
+            return {}
+        for api in current_apis:
+            if self.api_name == api["name"]:
+                return {
+                    "success": True,
+                    "endpoint": f"{api['id']}.execute-api.{aws.region}.amazonaws.com",
+                    "new": False
+                }        
+
+    def _init_gateway(self, region, force=False):
+        # Connect to AWS
+        aws = AWS(region, self.access_key_id, self.access_key_secret)
+
+        # If API gateway already exists for host, return pre-existing endpoint
+        current_endpoints = self._active_endpoints(aws)
+        if not force and current_endpoints.get('success'):
+            return self._active_endpoints(aws)
 
         # Create simple rest API resource
-        create_api_response = awsclient.create_rest_api(
+        create_api_response = aws.client.create_rest_api(
             name=self.api_name,
             endpointConfiguration={
                 "types": [
@@ -103,20 +120,20 @@ class ApiGateway(rq.adapters.HTTPAdapter):
         )
 
         # Get ID for new resource
-        get_resource_response = awsclient.get_resources(
+        get_resource_response = aws.client.get_resources(
             restApiId=create_api_response["id"]
         )
         rest_api_id = create_api_response["id"]
 
         # Create "Resource" (wildcard proxy path)
-        create_resource_response = awsclient.create_resource(
+        create_resource_response = aws.client.create_resource(
             restApiId=create_api_response["id"],
             parentId=get_resource_response["items"][0]["id"],
             pathPart="{proxy+}"
         )
 
         # Allow all methods to new resource
-        awsclient.put_method(
+        aws.client.put_method(
             restApiId=create_api_response["id"],
             resourceId=get_resource_response["items"][0]["id"],
             httpMethod="ANY",
@@ -128,7 +145,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
         )
 
         # Make new resource route traffic to new host
-        awsclient.put_integration(
+        aws.client.put_integration(
             restApiId=create_api_response["id"],
             resourceId=get_resource_response["items"][0]["id"],
             type="HTTP_PROXY",
@@ -142,7 +159,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
             }
         )
 
-        awsclient.put_method(
+        aws.client.put_method(
             restApiId=create_api_response["id"],
             resourceId=create_resource_response["id"],
             httpMethod="ANY",
@@ -153,7 +170,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
             }
         )
 
-        awsclient.put_integration(
+        aws.client.put_integration(
             restApiId=create_api_response["id"],
             resourceId=create_resource_response["id"],
             type="HTTP_PROXY",
@@ -168,14 +185,14 @@ class ApiGateway(rq.adapters.HTTPAdapter):
         )
 
         # Creates deployment resource, so that our API to be callable
-        awsclient.create_deployment(
+        aws.client.create_deployment(
             restApiId=rest_api_id,
             stageName="ProxyStage"
         )
 
         # Create simple usage plan
         # TODO: Cleanup usage plans on delete
-        awsclient.create_usage_plan(
+        aws.client.create_usage_plan(
             name="burpusage",
             description=rest_api_id,
             apiStages=[
@@ -194,16 +211,12 @@ class ApiGateway(rq.adapters.HTTPAdapter):
         }
 
     def _delete_gateway(self, region):
-        # Create client
-        session = boto3.session.Session()
-        awsclient = session.client('apigateway',
-                                   region_name=region,
-                                   aws_access_key_id=self.access_key_id,
-                                   aws_secret_access_key=self.access_key_secret
-                                   )
+        # Connect to AWS
+        aws = AWS(region, self.access_key_id, self.access_key_secret)
+
         # Get all gateway apis (or skip if we don't have permission)
         try:
-            apis = awsclient.get_rest_apis()["items"]
+            apis = aws.client.get_rest_apis()["items"]
         except botocore.exceptions.ClientError as e:
             if e.response["Error"]["Code"] == "UnrecognizedClientException":
                 return 0
@@ -216,7 +229,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
             if self.api_name == api["name"]:
                 # Attempt delete
                 try:
-                    success = awsclient.delete_rest_api(restApiId=api["id"])
+                    success = aws.client.delete_rest_api(restApiId=api["id"])
                     if success:
                         deleted += 1
                     else:
@@ -231,6 +244,11 @@ class ApiGateway(rq.adapters.HTTPAdapter):
                         self.logger.error(f"Failed to delete API {api['id']}.")
             api_iter += 1
         return deleted
+
+    def _check_endpoints(self, region):
+        # Connect to AWS
+        aws = AWS(region, self.access_key_id, self.access_key_secret)
+        return self._active_endpoints(aws)
 
     def start(self, force=False, endpoints=[]):
         # If endpoints given already, assign and continue
@@ -274,3 +292,19 @@ class ApiGateway(rq.adapters.HTTPAdapter):
             for future in concurrent.futures.as_completed(futures):
                 deleted += future.result()
         self.logger.debug(f"Deleted {deleted} endpoints with for site '{self.site}'.")
+
+    def status(self, force=False):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = []
+            endpoints = []
+            # Send each region creation to its own thread
+            for region in self.regions:
+                futures.append(executor.submit(self._check_endpoints, region=region))
+            # Get thread outputs
+            for future in concurrent.futures.as_completed(futures):
+                result = future.result()
+                if result["success"]:
+                    endpoints.append(result["endpoint"])
+        return {
+            'endpoints': endpoints
+        }
