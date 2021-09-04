@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `sample.py` : An example file showcasing how to use this package
   - `credentials-sample.json`: A sample json file to store your aws IAM credentials
 - logging: replaced all print statements with a logger
+- Created an `AWS` class to manage client connections
 
 ### Removed
 - `setup.py`
