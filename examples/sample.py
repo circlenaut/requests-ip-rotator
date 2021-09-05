@@ -30,7 +30,7 @@ def main() -> None:
         log_level = LOG_LEVEL.upper()
     )
     gateway.start()
-    _log.info(f"status: {gateway.status()}")
+    gateway.status()
 
     # Assign gateway to session
     session = _requests.Session()
