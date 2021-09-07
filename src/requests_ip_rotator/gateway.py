@@ -40,7 +40,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
         self.access_key_id = access_key_id
         self.access_key_secret = access_key_secret
         self.api_name = site + " - IP Rotate API"
-        self.usage_plan_name = "{}usage".format(''.join(choices(string.ascii_lowercase, k=8)))
+        self.usage_plan_name = "{}_requests_ip_rotator_usage".format(''.join(choices(string.ascii_lowercase, k=8)))
         self.regions = regions
         self.log_level = log_level
 
@@ -249,7 +249,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
                     success = aws.client.delete_rest_api(restApiId=ep.identity)
                     if success:
                         deleted_endpoints += 1
-                        self._logger.info(f"Removed API '{ep.identity}'")
+                        self._logger.debug(f"Removed API '{ep.identity}'")
                     else:
                         self._logger.error(f"Failed to delete API {ep.identity}.")
                 except botocore.exceptions.ClientError as e:
@@ -273,7 +273,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
                     success = aws.client.delete_usage_plan(usagePlanId=usg_pln.identity)
                     if success:
                         deleted_plans += 1
-                        self._logger.info(f"Removed Plan '{usg_pln.identity}'")
+                        self._logger.debug(f"Removed Plan '{usg_pln.identity}'")
                     else:
                         self._logger.error(f"Failed to delete Plan {usg_pln.identity}.")
                 except botocore.exceptions.ClientError as e:
@@ -332,7 +332,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
                 success = aws.client.delete_rest_api(restApiId=ep.identity)
                 if success:
                     deleted_endpoints += 1
-                    self._logger.info(f"Removed API({deleted_endpoints}/{len(endpoints)}) '{ep.identity}'")
+                    self._logger.debug(f"Removed API({deleted_endpoints}/{len(endpoints)}) '{ep.identity}'")
                 else:
                     self._logger.error(f"Failed to delete API {ep.identity}.")
             except botocore.exceptions.ClientError as e:
@@ -354,7 +354,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
                 success = aws.client.delete_usage_plan(usagePlanId=usg_pln.identity)
                 if success:
                     deleted_plans += 1
-                    self._logger.info(f"Removed Plan({deleted_plans}/{len(usage_plans)}) '{usg_pln.identity}'")
+                    self._logger.debug(f"Removed Plan({deleted_plans}/{len(usage_plans)}) '{usg_pln.identity}'")
                 else:
                     self._logger.error(f"Failed to delete Plan {usg_pln.identity}.")
             except botocore.exceptions.ClientError as e:
@@ -413,7 +413,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
                     if result.new:
                         new_endpoints += 1
 
-        self._logger.info(f"Using {len(self.endpoints)} endpoints with name '{self.api_name}' ({new_endpoints} new).")
+        self._logger.debug(f"Using {len(self.endpoints)} endpoints with name '{self.api_name}' ({new_endpoints} new).")
         return self.endpoints
 
     def shutdown(self):
@@ -433,7 +433,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
                 deleted_endpoints += endpoints
                 deleted_plans += plans
                 
-        self._logger.info(f"Deleted {deleted_endpoints} endpoints and {deleted_plans} plans for site '{self.site}'.")
+        self._logger.debug(f"Deleted {deleted_endpoints} endpoints and {deleted_plans} plans for site '{self.site}'.")
 
     def status(self, force=False) -> dict:
         self._logger.info(f"Getting status of API gateway{'s' if len(self.regions) > 1 else ''} for site '{self.site}'.")
@@ -445,8 +445,8 @@ class ApiGateway(rq.adapters.HTTPAdapter):
             # Get thread outputs
             for future in concurrent.futures.as_completed(futures):
                 plans, endpoints = future.result()
-        self._logger.info(f"active plans: {len(plans)}")
-        self._logger.info(f"active endpoints: {len(endpoints)}")
+        self._logger.debug(f"total active plans: {len(plans)}")
+        self._logger.debug(f"total active endpoints: {len(endpoints)}")
         return {
             'active_plans': plans,
             'active_endpoints': endpoints,
