@@ -1,7 +1,8 @@
 import requests as rq
 import logging
 import concurrent.futures
-from random import choice
+import string
+from random import choice, choices
 from time import sleep
 
 import botocore.exceptions
@@ -39,6 +40,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
         self.access_key_id = access_key_id
         self.access_key_secret = access_key_secret
         self.api_name = site + " - IP Rotate API"
+        self.usage_plan_name = "{}usage".format(''.join(choices(string.ascii_lowercase, k=8)))
         self.regions = regions
         self.log_level = log_level
 
@@ -209,9 +211,8 @@ class ApiGateway(rq.adapters.HTTPAdapter):
         )
 
         # Create simple usage plan
-        # TODO: Cleanup usage plans on delete
         aws.client.create_usage_plan(
-            name="burpusage",
+            name=self.usage_plan_name,
             description=rest_api_id,
             apiStages=[
                 {
@@ -228,31 +229,29 @@ class ApiGateway(rq.adapters.HTTPAdapter):
             new = False,
         )
 
+
     def _delete_gateway(self, region: str) -> int:
         # Connect to AWS
         aws = AWS(region, self.access_key_id, self.access_key_secret, self._logger.get_level())
 
         # Get all gateway apis (or skip if we don't have permission)
-        try:
-            apis = aws.client.get_rest_apis().get('items')
-        except botocore.exceptions.ClientError as e:
-            if e.response.get('Error').get('Code') == "UnrecognizedClientException":
-                return 0
-        # Delete APIs matching target name
-        api_iter = 0
-        deleted = 0
-        while api_iter < len(apis):
-            api = apis[api_iter]
+        endpoints = self._active_endpoints(aws)
+        usage_plans = self._active_usage_plans(aws)
+        deleted_endpoints = 0
+        for ep in endpoints:
             # Check if hostname matches
-            if self.api_name == api.get('name'):
+            if self.api_name == ep.name:
+                date_format = '%Y/%m/%d %H:%M:%S %z'
+                self._logger.debug("Removing endpoint '{identity}' created on '{date}'".format(identity=ep.identity, date=ep.created_date.strftime(date_format)))
+                
                 # Attempt delete
                 try:
-                    success = aws.client.delete_rest_api(restApiId=api.get('id'))
+                    success = aws.client.delete_rest_api(restApiId=ep.identity)
                     if success:
-                        self._logger.debug(f"Removed API '{api.get('id')}'")
-                        deleted += 1
+                        self._logger.info(f"Removed API({deleted_endpoints}/{len(endpoints)}) '{ep.identity}'")
+                        deleted_endpoints += 1
                     else:
-                        self._logger.error(f"Failed to delete API {api.get('id')}.")
+                        self._logger.error(f"Failed to delete API {ep.identity}.")
                 except botocore.exceptions.ClientError as e:
                     # If timeout, retry
                     err_code = e.response.get('Error').get('Code')
@@ -260,9 +259,37 @@ class ApiGateway(rq.adapters.HTTPAdapter):
                         sleep(1)
                         continue
                     else:
-                        self._logger.error(f"Failed to delete API {api.get('id')}.")
-            api_iter += 1
-        return deleted
+                        self._logger.error(f"Failed to delete API {ep.identity}.")
+       
+        deleted_plans = 0
+        for usg_pln in usage_plans:
+            # Check if usage plan matches
+            if self.usage_plan_name == usg_pln.name:
+                date_format = '%Y/%m/%d %H:%M:%S %z'
+                self._logger.debug("Removing plan '{identity}' named as '{name}'".format(identity=usg_pln.identity, name=usg_pln.name))
+
+                # Attempt delete
+                try:
+                    success = aws.client.delete_usage_plan(usagePlanId=usg_pln.identity)
+                    if success:
+                        self._logger.info(f"Removed Plan({deleted_plans}/{len(usage_plans)}) '{usg_pln.identity}'")
+                        deleted_plans += 1
+                    else:
+                        self._logger.error(f"Failed to delete Plan {usg_pln.identity}.")
+                except botocore.exceptions.ClientError as e:
+                    # If timeout, retry
+                    err_code = e.response.get('Error').get('Code')
+                    err_msg = e.response.get('Error').get('Message')
+                    if err_code == "TooManyRequestsException":
+                        sleep(1)
+                        continue
+                    if err_code == "BadRequestException":
+                        self._logger.error(err_msg)
+                    else:
+                        self._logger.error(f"Failed to delete Plan {usg_pln.identity}.")
+        
+        return deleted_endpoints, deleted_plans
+
 
     def _current_gateways(self, region: str) -> dict:
         # Connect to AWS
@@ -287,6 +314,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
                 'url': ep.url,
             }
         return usage_plans, endpoints
+
 
     def _remove_all_gateways(self, region: str) -> dict:
         # Connect to AWS
@@ -345,7 +373,10 @@ class ApiGateway(rq.adapters.HTTPAdapter):
         proxies: dict = None,
         ) -> rq.models.Response:
         # Get random endpoint
-        endpoint = choice(self.endpoints)
+        try:
+            endpoint = choice(self.endpoints)
+        except AttributeError:
+            raise ApiConnectionError('No API endpoints detected, has a gateway been started?')
         # Replace URL with our endpoint
         protocol, site = request.url.split("://", 1)
         site_path = site.split("/", 1)[1]
@@ -395,11 +426,14 @@ class ApiGateway(rq.adapters.HTTPAdapter):
             for region in self.regions:
                 futures.append(executor.submit(self._delete_gateway, region=region))
             # Check outputs
-            deleted = 0
+            deleted_endpoints = 0
+            deleted_plans = 0
             for future in concurrent.futures.as_completed(futures):
-                deleted += future.result()
+                endpoints, plans = future.result()
+                deleted_endpoints += endpoints
+                deleted_plans += plans
                 
-        self._logger.info(f"Deleted {deleted} endpoints for site '{self.site}'.")
+        self._logger.info(f"Deleted {deleted_endpoints} endpoints and {deleted_plans} plans for site '{self.site}'.")
 
     def status(self, force=False) -> dict:
         self._logger.info(f"Getting status of API gateway{'s' if len(self.regions) > 1 else ''} for site '{self.site}'.")
