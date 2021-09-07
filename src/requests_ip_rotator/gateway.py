@@ -248,8 +248,8 @@ class ApiGateway(rq.adapters.HTTPAdapter):
                 try:
                     success = aws.client.delete_rest_api(restApiId=ep.identity)
                     if success:
-                        self._logger.info(f"Removed API({deleted_endpoints}/{len(endpoints)}) '{ep.identity}'")
                         deleted_endpoints += 1
+                        self._logger.info(f"Removed API '{ep.identity}'")
                     else:
                         self._logger.error(f"Failed to delete API {ep.identity}.")
                 except botocore.exceptions.ClientError as e:
@@ -272,8 +272,8 @@ class ApiGateway(rq.adapters.HTTPAdapter):
                 try:
                     success = aws.client.delete_usage_plan(usagePlanId=usg_pln.identity)
                     if success:
-                        self._logger.info(f"Removed Plan({deleted_plans}/{len(usage_plans)}) '{usg_pln.identity}'")
                         deleted_plans += 1
+                        self._logger.info(f"Removed Plan '{usg_pln.identity}'")
                     else:
                         self._logger.error(f"Failed to delete Plan {usg_pln.identity}.")
                 except botocore.exceptions.ClientError as e:
@@ -331,8 +331,8 @@ class ApiGateway(rq.adapters.HTTPAdapter):
             try:
                 success = aws.client.delete_rest_api(restApiId=ep.identity)
                 if success:
-                    self._logger.info(f"Removed API({deleted_endpoints}/{len(endpoints)}) '{ep.identity}'")
                     deleted_endpoints += 1
+                    self._logger.info(f"Removed API({deleted_endpoints}/{len(endpoints)}) '{ep.identity}'")
                 else:
                     self._logger.error(f"Failed to delete API {ep.identity}.")
             except botocore.exceptions.ClientError as e:
@@ -353,8 +353,8 @@ class ApiGateway(rq.adapters.HTTPAdapter):
             try:
                 success = aws.client.delete_usage_plan(usagePlanId=usg_pln.identity)
                 if success:
-                    self._logger.info(f"Removed Plan({deleted_plans}/{len(usage_plans)}) '{usg_pln.identity}'")
                     deleted_plans += 1
+                    self._logger.info(f"Removed Plan({deleted_plans}/{len(usage_plans)}) '{usg_pln.identity}'")
                 else:
                     self._logger.error(f"Failed to delete Plan {usg_pln.identity}.")
             except botocore.exceptions.ClientError as e:
