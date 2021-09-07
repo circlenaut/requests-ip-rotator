@@ -2,7 +2,7 @@
 import boto3
 import botocore.exceptions
 
-from .errors import ConnectionError
+from .errors import ApiConnectionError
 from .logger import Logger
 
 __all__ = ['AWS']
@@ -25,4 +25,4 @@ class AWS:
             )
             self._logger.debug(f"Successfully authenticated to AWS region: '{region}'")
         except botocore.exceptions as err:
-            raise ConnectionError(err)
+            raise ApiConnectionError(err)

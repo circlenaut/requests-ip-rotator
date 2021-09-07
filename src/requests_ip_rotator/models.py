@@ -19,3 +19,9 @@ class Endpoint(pydantic.BaseModel):
     key_source: str
     config: dict
     url: str
+
+class Plan(pydantic.BaseModel):
+    identity: str
+    name: str 
+    description: str
+    api_stages: list

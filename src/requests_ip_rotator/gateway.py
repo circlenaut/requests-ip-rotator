@@ -7,11 +7,12 @@ from time import sleep
 import botocore.exceptions
 
 from .aws import AWS
-from .errors import ConnectionError
+from .errors import ApiConnectionError
 from .logger import Logger
 from .models import (
     Connection,
     Endpoint,
+    Plan,
 )
 from .regions import (
     DEFAULT_REGIONS,
@@ -61,7 +62,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
             if e.response.get('Error').get('Code') == "UnrecognizedClientException":
                 self._logger.error(f"Could not create region (some regions require manual enabling): {region}")
                 return Connection(success=False)
-            raise ConnectionError(e)
+            raise ApiConnectionError(e)
 
         if len(current_apis) == 0:
             return Connection()
@@ -72,15 +73,15 @@ class ApiGateway(rq.adapters.HTTPAdapter):
                     endpoint = f"{api.get('id')}.execute-api.{aws.region}.amazonaws.com",
                     new = False,
                 )
-    def _active_endpoints(self, aws: AWS) -> list:
+    def _active_endpoints(self, aws: AWS, limit=500) -> list:
         """ Returns existing endpoint"""
 
         try:
-            current_apis = aws.client.get_rest_apis().get('items')
+            current_apis = aws.client.get_rest_apis(limit=limit).get('items')
         except botocore.exceptions.ClientError as e:
             if e.response.get('Error').get('Code') == "UnrecognizedClientException":
                 return self._logger.error(f"Could not create region (some regions require manual enabling): {region}")
-            raise ConnectionError(e)
+            raise ApiConnectionError(e)
         endpoints = []
         for api in current_apis:
             endpoint = Endpoint(
@@ -93,6 +94,26 @@ class ApiGateway(rq.adapters.HTTPAdapter):
             )
             endpoints.append(endpoint)
         return endpoints
+
+    def _active_usage_plans(self, aws: AWS, limit=500) -> list:
+        """ Returns existing endpoint"""
+
+        try:
+            current_usage_plans = aws.client.get_usage_plans(limit=limit).get('items')
+        except botocore.exceptions.ClientError as e:
+            if e.response.get('Error').get('Code') == "UnrecognizedClientException":
+                return self._logger.error(f"Could not create region (some regions require manual enabling): {region}")
+            raise ApiConnectionError(e)
+        usage_plans = []
+        for usg_pln in current_usage_plans:
+            plan = Plan(
+                identity = usg_pln.get('id'),
+                name = usg_pln.get('name'),
+                description = usg_pln.get('description'),
+                api_stages = usg_pln.get('apiStages'),
+            )
+            usage_plans.append(plan)
+        return usage_plans
         
 
     def _init_gateway(self, region: str, force: bool = False) -> dict:
@@ -101,6 +122,8 @@ class ApiGateway(rq.adapters.HTTPAdapter):
 
         # If API gateway already exists for host, return pre-existing endpoint
         current_endpoints = self._existing_connection(aws)
+        if not force and current_endpoints is None:
+            raise ApiConnectionError('No endpoints found')
         if not force and current_endpoints.success:
             return self._existing_connection(aws)
 
@@ -208,6 +231,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
     def _delete_gateway(self, region: str) -> int:
         # Connect to AWS
         aws = AWS(region, self.access_key_id, self.access_key_secret, self._logger.get_level())
+        print(aws)
 
         # Get all gateway apis (or skip if we don't have permission)
         try:
@@ -245,16 +269,76 @@ class ApiGateway(rq.adapters.HTTPAdapter):
         # Connect to AWS
         aws = AWS(region, self.access_key_id, self.access_key_secret, self._logger.get_level())
         
+        usage_plans = {}
+        for usg_pln in self._active_usage_plans(aws):
+            date_format = '%Y/%m/%d %H:%M:%S %z'
+            self._logger.debug("plan '{idn}' named as '{name}' is active".format(idn=usg_pln.identity, name=usg_pln.name))
+            usage_plans[usg_pln.identity] = {
+                'name': usg_pln.name,
+                'description': usg_pln.description,
+            }
+
         endpoints = {}
         for ep in self._active_endpoints(aws):
-            date_format = '%Y/%m/%d %H:%M:%S %Z'
+            date_format = '%Y/%m/%d %H:%M:%S %z'
             self._logger.debug("Endpoint '{name}' located at '{url}' created on '{date}' is active".format(name=ep.name, url=ep.url, date=ep.created_date.strftime(date_format)))
             endpoints[ep.identity] = {
                 'name': ep.name,
                 'creation_date': ep.created_date,
                 'url': ep.url,
             }
-        return endpoints
+        return usage_plans, endpoints
+
+    def _remove_all_gateways(self, region: str) -> dict:
+        # Connect to AWS
+        aws = AWS(region, self.access_key_id, self.access_key_secret, self._logger.get_level())
+        
+        endpoints = self._active_endpoints(aws)
+        usage_plans = self._active_usage_plans(aws)
+        deleted_endpoints = 0
+        for ep in endpoints:
+            date_format = '%Y/%m/%d %H:%M:%S %z'
+            self._logger.debug("Removing endpoint '{identity}' created on '{date}'".format(identity=ep.identity, date=ep.created_date.strftime(date_format)))
+            
+            # Attempt delete
+            try:
+                success = aws.client.delete_rest_api(restApiId=ep.identity)
+                if success:
+                    self._logger.info(f"Removed API({deleted_endpoints}/{len(endpoints)}) '{ep.identity}'")
+                    deleted_endpoints += 1
+                else:
+                    self._logger.error(f"Failed to delete API {ep.identity}.")
+            except botocore.exceptions.ClientError as e:
+                # If timeout, retry
+                err_code = e.response.get('Error').get('Code')
+                if err_code == "TooManyRequestsException":
+                    sleep(1)
+                    continue
+                else:
+                    self._logger.error(f"Failed to delete API {ep.identity}.")
+
+        deleted_plans = 0
+        for usg_pln in usage_plans:
+            date_format = '%Y/%m/%d %H:%M:%S %z'
+            self._logger.debug("Removing plan '{identity}' named as '{name}'".format(identity=usg_pln.identity, name=usg_pln.name))
+            
+            # Attempt delete
+            try:
+                success = aws.client.delete_usage_plan(usagePlanId=usg_pln.identity)
+                if success:
+                    self._logger.info(f"Removed Plan({deleted_plans}/{len(usage_plans)}) '{usg_pln.identity}'")
+                    deleted_plans += 1
+                else:
+                    self._logger.error(f"Failed to delete Plan {usg_pln.identity}.")
+            except botocore.exceptions.ClientError as e:
+                # If timeout, retry
+                err_code = e.response.get('Error').get('Code')
+                if err_code == "TooManyRequestsException":
+                    sleep(1)
+                    continue
+                else:
+                    self._logger.error(f"Failed to delete Plan {usg_pln.identity}.")
+        return deleted_endpoints, deleted_plans
 
     def send(self, request: rq.models.Response, stream: bool = False, timeout: int = None,
         verify: bool = True,
@@ -327,8 +411,26 @@ class ApiGateway(rq.adapters.HTTPAdapter):
                 futures.append(executor.submit(self._current_gateways, region=region))
             # Get thread outputs
             for future in concurrent.futures.as_completed(futures):
-                endpoints = future.result()
+                plans, endpoints = future.result()
+        self._logger.info(f"active plans: {len(plans)}")
+        self._logger.info(f"active endpoints: {len(endpoints)}")
         return {
+            'active_plans': plans,
             'active_endpoints': endpoints,
+        }
+
+    def cleanup(self, force=False) -> dict:
+        self._logger.info(f"Removing all API gateway{'s' if len(self.regions) > 1 else ''} endpoints.")
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = []
+            # Send each region creation to its own thread
+            for region in self.regions:
+                futures.append(executor.submit(self._remove_all_gateways, region=region))
+            # Get thread outputs
+            for future in concurrent.futures.as_completed(futures):
+                endpoints, plans = future.result()
+        return {
+            'removed_endpoints': endpoints,
+            'removed_plans': plans,
         }
         

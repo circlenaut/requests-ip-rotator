@@ -29,19 +29,22 @@ def main() -> None:
         access_key_secret = credentials.get('access_key_secret'),
         log_level = LOG_LEVEL.upper()
     )
-    gateway.start()
+#    gateway.start(force=True)
     gateway.status()
 
     # Assign gateway to session
-    session = _requests.Session()
-    session.mount(TEST_SITE, gateway)
+#    session = _requests.Session()
+#    session.mount(TEST_SITE, gateway)
 
     # Send request (IP will be randomised)
-    response = session.get(f"{TEST_SITE}/index.html")
-    _log.info(f"status code: '{response.status_code}'")
+#    response = session.get(f"{TEST_SITE}/index.html")
+#    _log.info(f"status code: '{response.status_code}'")
 
     # Delete gateways
-    gateway.shutdown()
+#    gateway.shutdown()
+
+    # Remove any residual gateways and usage plans
+    gateway.cleanup()
 
 if __name__ == '__main__':
     
