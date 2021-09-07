@@ -231,7 +231,6 @@ class ApiGateway(rq.adapters.HTTPAdapter):
     def _delete_gateway(self, region: str) -> int:
         # Connect to AWS
         aws = AWS(region, self.access_key_id, self.access_key_secret, self._logger.get_level())
-        print(aws)
 
         # Get all gateway apis (or skip if we don't have permission)
         try:
