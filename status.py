@@ -30,7 +30,15 @@ def main() -> None:
         log_level = LOG_LEVEL.upper()
     )
     # Get status
-    gateway.status()
+    statuses = gateway.status()
+    for api, object in statuses.items():
+        #print(f"{api}: {status}")
+            for idn, stats in object.items():
+                #print(_json.dumps(object, indent=4))
+                #print(f"{idn}:")
+                for name, status in stats.items():
+                    pass
+                    #print(f"    {name}: {status}")
 
 if __name__ == '__main__':
     

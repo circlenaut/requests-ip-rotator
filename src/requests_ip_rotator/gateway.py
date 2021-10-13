@@ -3,6 +3,7 @@ import logging
 import concurrent.futures
 import string
 from random import choice, choices
+from urllib.parse import urlparse
 from time import sleep
 
 import botocore.exceptions
@@ -39,8 +40,11 @@ class ApiGateway(rq.adapters.HTTPAdapter):
         # Define class attributes
         self.access_key_id = access_key_id
         self.access_key_secret = access_key_secret
-        self.api_name = site + " - IP Rotate API"
-        self.usage_plan_name = "{}_requests_ip_rotator_usage".format(''.join(choices(string.ascii_lowercase, k=8)))
+
+
+        site_loc = f"{urlparse(site).netloc}{urlparse(site).path}"
+        self.api_name = "requests_ip_rotator_api-{i}-{s}".format(i=''.join(choices(string.ascii_lowercase, k=8)), s=site_loc)
+        self.usage_plan_name = "requests_ip_rotator_usage-{i}-{s}".format(i=''.join(choices(string.ascii_lowercase, k=8)), s=site_loc)
         self.regions = regions
         self.log_level = log_level
 
@@ -242,7 +246,7 @@ class ApiGateway(rq.adapters.HTTPAdapter):
             # Check if hostname matches
             if self.api_name == ep.name:
                 date_format = '%Y/%m/%d %H:%M:%S %z'
-                self._logger.debug("Removing endpoint '{identity}' created on '{date}'".format(identity=ep.identity, date=ep.created_date.strftime(date_format)))
+                self._logger.debug("Removing endpoint '{identity}' named as '{name}' created on '{date}'".format(identity=ep.identity, name=ep.name, date=ep.created_date.strftime(date_format)))
                 
                 # Attempt delete
                 try:
