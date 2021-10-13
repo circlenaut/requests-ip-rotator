@@ -2,4 +2,4 @@
 
 pip uninstall requests-ip-rotator -y
 pip install ../.
-python sample.py
+python ../examples/sample.py

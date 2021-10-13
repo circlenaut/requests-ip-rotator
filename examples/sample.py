@@ -7,7 +7,7 @@ from requests_ip_rotator import ApiGateway as _ApiGateway
 
 
 CREDENTIALS_FILE = './credentials.json'
-TEST_SITE = 'http://www.google.com'
+TEST_SITE = 'http://www.google.com/en'
 EXTRA_REGIONS = ["us-east-1", "us-east-2"]
 LOG_LEVEL = "debug"
 
